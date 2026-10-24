@@ -1,0 +1,137 @@
+@font-face {
+  font-family: "AlibabaSans";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*1GSgSYDD_aIAAAAAQsAAAAgAegCCAQ/AlibabaSans-Light.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "AlibabaSans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*2zEUQqnPNesAAAAAQtAAAAgAegCCAQ/AlibabaSans-Regular.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "AlibabaSans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Medium.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "AlibabaSans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Bold.woff2")
+    format("woff2");
+}
+@font-face {
+  font-family: "AlibabaSans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Heavy.woff2")
+    format("woff2");
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family:
+    AlibabaSans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+.colorWeak {
+  filter: invert(80%);
+}
+
+.ant-layout {
+  min-height: 100vh;
+}
+.ant-pro-sider.ant-layout-sider.ant-pro-sider-fixed {
+  left: unset;
+}
+
+.ant-pro-sider-collapsed .ant-pro-sider-link span:not([role='img']) {
+  display: none;
+}
+
+
+canvas {
+  display: block;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+@media (max-width: 768px) {
+  .ant-table {
+    width: 100%;
+    overflow-x: auto;
+    &-thead > tr,
+    &-tbody > tr {
+      > th,
+      > td {
+        white-space: pre;
+        > span {
+          display: block;
+        }
+      }
+    }
+  }
+}
+
+// 右侧 AI 助手面板（src/components/CopilotDock）给内容区让位。
+//
+// 面板自己是 position: fixed 的，不占文档流；「挤开内容」这件事只能在布局层做，
+// 让位宽度由 CopilotDock 写到 :root 的 --copilot-dock-w 上
+// （展开 = 可视宽度 1/3，放大档 = 1/2，收起 = 0），写变量而不是直接写死，
+// 是为了展开/收起/换挡都能吃到 transition。
+//
+// 这里**不加断点**：面板收起时变量就是 0，本来就一点不占；展开时是按可视宽度切的
+// 1/3（或放大档的 1/2），会跟着屏幕一起缩，窄屏也放得下。以前那个
+// `min-width: 1100px` 是给固定 380px 的面板兜底的，现在反而有害 —— 一旦不生效，
+// 面板照样按变量撑开，却没给它留宽度，于是盖在内容上。
+// 让「面板宽度」和「内容让位宽度」永远来自同一个变量，就不会出现这种错位。
+//
+// ⚠️ 「让位」用 margin-right + 自己滚动，**不是** padding-right + document 滚动
+// -------------------------------------------------------------------------
+//   面板展开时，用户反馈：**全局滚动条贴在 AI 面板的右侧外沿**（面板看起来像带了个
+//   滚动条），希望滚动条留在左边的内容区。
+//
+//   根因是「谁在滚」：原来滚的是 document（实测 `documentElement.scrollHeight 1994 >
+//   clientHeight 800`），而 document 的滚动条永远渲染在**视口最右**，不可能挪走。
+//   padding-right 只是把内容推左了，滚动条自己还在最右 —— 于是紧贴在面板外面。
+//
+//   所以让**内容区自己滚**：`.ant-pro-layout` 用 margin-right 让出面板宽度
+//   （盒子右边缘 = 面板左边缘），同时成为滚动容器。它的滚动条就落在
+//   `826-15 → 826`，即**紧贴面板左侧、在内容区里面**；document 不再溢出，
+//   最右侧那条滚动条随之消失。
+//
+//   · 盒子模型用 margin 而不是 padding 是**必须**的：padding 时容器的右边缘仍在
+//     视口最右（826→1239 那 413px 是它的 padding），滚动条照样贴面板外面。
+//     margin 才会把盒子的右边缘真正收到 826。
+//   · `height: 100vh` 不能省：不给定高，容器会被内容撑到 1994px，document 又溢出了。
+//     给 100vh 之后 .ant-app / #root 跟着回到视口高，最右侧那条滚动条才真正消失。
+//   · 面板收起（变量 = 0）时容器就是全宽、滚动条回到视口最右 —— 和没有面板时一模一样。
+//   · 滚动容器**不会裁剪** position: fixed 的后代（除非它有 transform/filter 之类），
+//     所以固定定位的左侧菜单（fixSiderbar: true）与右侧面板都不受影响，只是不再随内容滚动。
+//     页面里唯一的 `position: sticky`（src/pages/document 的 stickyTop）改成相对
+//     最近滚动祖先定位，仍然正常。
+.ant-pro-layout {
+  height: 100vh;
+  margin-right: var(--copilot-dock-w, 0px);
+  overflow-y: auto;
+  transition: margin-right 0.24s ease;
+}

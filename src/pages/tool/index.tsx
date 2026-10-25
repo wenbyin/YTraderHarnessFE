@@ -24,6 +24,7 @@ import {
   Empty,
   Space,
   Spin,
+  Switch,
   Tabs,
   Tag,
   Typography,
@@ -38,13 +39,16 @@ import SyncModal from './components/SyncModal';
 import TaxonomyDrawer from './components/TaxonomyDrawer';
 import type { ToolFilters } from './components/ToolList';
 import ToolList, { emptyFilters } from './components/ToolList';
+import ToolStatusTag from './components/ToolStatusTag';
 import {
   buildDocPutBody,
   type Capability,
   type DocDraft,
   isDocDirty,
+  isToolEnabled,
   type MCPProviderSummary,
   openDocDraft,
+  TOOL_DISABLED_COLOR,
   type ToolDefinitionDetail,
   type ToolSummary,
 } from './data';
@@ -57,6 +61,7 @@ import {
   listTools,
   replaceToolClassifications,
   replaceToolDocumentation,
+  setToolEnabled,
 } from './service';
 import { useStyles } from './style';
 
@@ -68,7 +73,7 @@ type TabKey = 'overview' | 'doc' | 'schema' | 'class' | 'chain';
 const ToolPage: React.FC = () => {
   const { styles } = useStyles();
   const labels = useEnumLabels();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const [filters, setFilters] = useState<ToolFilters>(emptyFilters());
   const [items, setItems] = useState<ToolSummary[]>([]);
@@ -97,6 +102,8 @@ const ToolPage: React.FC = () => {
   const [docDraft, setDocDraft] = useState<DocDraft | null>(null);
   const [classDraft, setClassDraft] = useState<string[]>([]);
   const [saving, setSaving] = useState<'doc' | 'class' | null>(null);
+  /** 运行时开关的在途状态。它是个 PATCH，不能和上面两个保存互斥（不是同一份草稿）。 */
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
 
   /** 处理链的脏标记由面板自己算（items vs saved），这里只接过来点亮 tab。 */
   const [chainDirty, setChainDirty] = useState(false);
@@ -261,11 +268,59 @@ const ToolPage: React.FC = () => {
     }
   };
 
+  /**
+   * 运行时上下线（PATCH /tools/{tool_id}/enabled）。
+   *
+   * 契约里这条开关的三个要点，决定了这里的交互写法：
+   *   1. 它不在 manifest 里，也不被 sync 覆盖 —— 后端存在
+   *      tool_definition_state（有行 = 显式禁用，无行 = 启用），所以重同步
+   *      不会把下线的工具"复活"。这与 source_state=MISSING（代码侧没了）
+   *      是两件事，界面上必须分开表达。
+   *   2. 只对**下一轮**工具解析生效，正在跑的一轮不受影响 —— 提示语不能写成
+   *      "已下线"，得说清"下一轮起"。
+   *   3. 下线等于摘掉 LLM 可见性，是可逆但有实际影响的操作 → 先确认再发。
+   *      恢复是纯增益，不拦。
+   */
+  const onToggleEnabled = async (next: boolean) => {
+    if (!selectedId) return;
+    if (!next) {
+      const ok = await new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: `下线「${detail?.manifest.name ?? selectedId}」？`,
+          content:
+            '下一轮工具解析起不再下发给 LLM，本轮执行不受影响。开关存在 tool_definition_state 里，重新同步代码不会自动恢复，需要在这里手动打开。',
+          okText: '下线',
+          okButtonProps: { danger: true },
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!ok) return;
+    }
+    setTogglingEnabled(true);
+    try {
+      const res = await setToolEnabled(selectedId, next);
+      // 以服务端回写的状态为准：并发下别人可能已经改过。
+      const enabled = typeof res?.enabled === 'boolean' ? res.enabled : next;
+      setDetail((prev) => (prev ? { ...prev, enabled } : prev));
+      message.success(
+        enabled
+          ? '已恢复：下一轮起重新下发给 LLM'
+          : '已下线：下一轮起不再下发给 LLM',
+      );
+      await loadTools();
+    } catch (e: unknown) {
+      message.error((e as Error)?.message ?? '操作失败');
+    } finally {
+      setTogglingEnabled(false);
+    }
+  };
+
   const docDirty = useMemo(
     () => Boolean(docDraft && isDocDirty(docDraft, detail?.documentation)),
     [docDraft, detail?.documentation],
   );
-
   const classDirty = useMemo(() => {
     const saved = (detail?.classifications ?? []).map((c) => c.id);
     const a = [...classDraft].sort().join();
@@ -278,13 +333,26 @@ const ToolPage: React.FC = () => {
     [items],
   );
 
+  /**
+   * 当前被运行时下线的数量。
+   *
+   * 和 missingCount 一样只统计**已取回的这批**（列表一次取满 100，不翻页），
+   * 不是全库真值 —— 所以标签只说"N 个"，不写"共 N 个"。
+   */
+  const disabledCount = useMemo(
+    () => items.filter((t) => !isToolEnabled(t)).length,
+    [items],
+  );
+
   const tabItems = useMemo(() => {
     if (!detail) return [];
     return [
       {
         key: 'overview' as TabKey,
         label: '概览 · Manifest',
-        children: <ManifestPanel manifest={detail.manifest} />,
+        children: (
+          <ManifestPanel manifest={detail.manifest} enabled={detail.enabled} />
+        ),
       },
       {
         key: 'doc' as TabKey,
@@ -364,7 +432,7 @@ const ToolPage: React.FC = () => {
   return (
     <PageContainer
       title="工具定义"
-      content="Tool 定义由代码注册产生，前端只读 —— 这里能改的只有文档覆盖与业务分类，两者给 LLM / JEV 消费。"
+      content="Tool 定义由代码注册产生，manifest 只读 —— 可写的是文档覆盖、业务分类，以及运行时上下线（enabled，不影响代码侧事实）。"
       extra={[
         <Button
           key="taxonomy"
@@ -416,6 +484,14 @@ const ToolPage: React.FC = () => {
                     {labels.sourceState('MISSING')} {missingCount}
                   </Tag>
                 ) : null}
+                {disabledCount ? (
+                  <Tag
+                    color={TOOL_DISABLED_COLOR}
+                    title="enabled = false：运行时已下线，下一轮工具解析不再下发给 LLM"
+                  >
+                    {labels.enabled(false)} {disabledCount}
+                  </Tag>
+                ) : null}
               </Space>
             }
           >
@@ -462,25 +538,26 @@ const ToolPage: React.FC = () => {
                   <Typography.Text strong>
                     {detail.manifest.name}
                   </Typography.Text>
-                  <Tag
-                    color={
-                      detail.manifest.source_state === 'ACTIVE'
-                        ? 'green'
-                        : 'red'
-                    }
-                    title={detail.manifest.source_state}
-                  >
-                    {labels.sourceState(detail.manifest.source_state)}
-                  </Tag>
+                  {/* 状态槽只有一个：MISSING > 已下线 > 生效中（见组件注释） */}
+                  <ToolStatusTag
+                    sourceState={detail.manifest.source_state}
+                    enabled={detail.enabled}
+                  />
                   <Tag title={detail.manifest.source_type}>
                     {labels.sourceType(detail.manifest.source_type)}
                   </Tag>
                 </Space>
               }
               extra={
-                <Typography.Text type="secondary" className={styles.mono}>
-                  {detail.manifest.tool_key}
-                </Typography.Text>
+                // 「已下线」已由标题里的状态槽表达，这里不再重复一个标签
+                <Switch
+                  checked={isToolEnabled(detail)}
+                  loading={togglingEnabled}
+                  onChange={onToggleEnabled}
+                  checkedChildren={labels.enabled(true)}
+                  unCheckedChildren={labels.enabled(false)}
+                  title="运行时开关：关闭后下一轮工具解析不再下发给 LLM"
+                />
               }
             >
               <Tabs

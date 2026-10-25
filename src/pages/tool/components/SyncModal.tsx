@@ -117,7 +117,9 @@ const SyncModal: React.FC<SyncModalProps> = ({
         showIcon
         style={{ marginBottom: 12 }}
         title="按 manifest_hash 比对，幂等"
-        description="unchanged / updated / MISSING（默认不删除）"
+        // 最后一句是 tool.yaml 明说的：enabled 存在 tool_definition_state，
+        // 同步既不写也不清它 —— 不说清的话，"同步过了怎么还是下线"必然会被问。
+        description="unchanged / updated / MISSING（默认不删除）。同步不改运行时开关：已下线的工具同步后仍是下线，需在详情页手动恢复。"
       />
 
       <Typography.Text strong>source_types</Typography.Text>

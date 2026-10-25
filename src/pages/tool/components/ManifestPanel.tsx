@@ -7,12 +7,22 @@
 // 把这句话说清楚，而不是提供一个改了没用的表单。
 import { Alert, Descriptions, Tag, Typography } from 'antd';
 import React from 'react';
-import { SOURCE_STATE_COLOR, type ToolManifest, toolDocstring } from '../data';
+import { type ToolManifest, toolDocstring } from '../data';
 import { useEnumLabels } from '../enumLabels';
 import { useStyles } from '../style';
+import ToolStatusTag from './ToolStatusTag';
 
 interface ManifestPanelProps {
   manifest: ToolManifest;
+  /**
+   * 运行时开关（`ToolDefinitionDetail.enabled`）。
+   *
+   * 它不在 manifest 里（契约明说：manifest 是代码侧事实），但概览表这一行的
+   * `source_state` 是**唯一**告诉人"这工具现在算不算数"的地方 —— 下线后还显示
+   * 「生效中」就是自相矛盾（2026-10-25 用户截图指出）。所以这一格复用状态槽，
+   * 优先级与列表卡、详情头完全一致（MISSING > 已下线 > 生效中）。
+   */
+  enabled?: boolean | null;
 }
 
 /** ISO 时间去掉尾巴，页面空间有限不需要到毫秒 */
@@ -24,7 +34,7 @@ function fmt(iso?: string | null): string {
     .replace(/Z$/, '');
 }
 
-const ManifestPanel: React.FC<ManifestPanelProps> = ({ manifest }) => {
+const ManifestPanel: React.FC<ManifestPanelProps> = ({ manifest, enabled }) => {
   const { styles } = useStyles();
   const labels = useEnumLabels();
   const missing = manifest.source_state === 'MISSING';
@@ -74,13 +84,13 @@ const ManifestPanel: React.FC<ManifestPanelProps> = ({ manifest }) => {
           {
             key: 'source_state',
             label: 'source_state',
+            // 用状态槽而不是裸 Tag：下线时这里必须显示「已下线」，
+            // 否则上面标题写"已下线"、表里写"生效中"，同一屏自相矛盾。
             children: (
-              <Tag
-                color={SOURCE_STATE_COLOR[manifest.source_state]}
-                title={manifest.source_state}
-              >
-                {labels.sourceState(manifest.source_state)}
-              </Tag>
+              <ToolStatusTag
+                sourceState={manifest.source_state}
+                enabled={enabled}
+              />
             ),
           },
           {

@@ -40,17 +40,17 @@ import {
   type Capability,
   classificationMap,
   classPath,
+  isToolEnabled,
   type MCPProviderSummary,
-  SOURCE_STATE_COLOR,
   type ToolSummary,
 } from '../data';
-import { useEnumLabels } from '../enumLabels';
 import {
   mcpFilterDisabled,
   mcpProviderDetail,
   mcpProviderSelectLabel,
 } from '../mcpProvider';
 import { useStyles } from '../style';
+import ToolStatusTag from './ToolStatusTag';
 
 /** 筛选条件。空串 = 该条件不参与过滤。 */
 export interface ToolFilters {
@@ -104,7 +104,6 @@ const ToolList: React.FC<ToolListProps> = ({
   onFiltersChange,
 }) => {
   const { styles } = useStyles();
-  const labels = useEnumLabels();
   const map = classificationMap(classifications);
 
   const providerDisabled = mcpFilterDisabled(filters.source_type);
@@ -210,6 +209,7 @@ const ToolList: React.FC<ToolListProps> = ({
             <button
               type="button"
               key={tool.id}
+              data-tool-enabled={isToolEnabled(tool) ? 'true' : 'false'}
               className={`${styles.toolItem} ${
                 tool.id === selectedId ? styles.toolItemActive : ''
               }`}
@@ -217,14 +217,12 @@ const ToolList: React.FC<ToolListProps> = ({
             >
               <div className={styles.toolItemName} data-role="name">
                 <span style={{ minWidth: 0 }}>{tool.name}</span>
-                <Tag
-                  color={SOURCE_STATE_COLOR[tool.source_state]}
+                {/* 状态槽只有一个（MISSING > 已下线 > 生效中），理由见组件头注释 */}
+                <ToolStatusTag
+                  sourceState={tool.source_state}
+                  enabled={tool.enabled}
                   style={{ marginInlineEnd: 0 }}
-                  // 译文给人看，原值挂在 title 上 —— 对接口时得按原值说话
-                  title={tool.source_state}
-                >
-                  {labels.sourceState(tool.source_state)}
-                </Tag>
+                />
               </div>
               <div className={styles.mono} style={{ color: '#8a9099' }}>
                 {tool.tool_key}

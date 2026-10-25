@@ -23,6 +23,11 @@ export default {
   'tool.source_state.ACTIVE': '生效中',
   'tool.source_state.MISSING': '已缺失',
 
+  // ---- enabled（运行时开关，2026-10-25 新增）----
+  // 末段是 boolean 的字符串形式：契约里它是布尔，不是枚举，所以键名用 true/false。
+  'tool.enabled.true': '在线',
+  'tool.enabled.false': '已下线',
+
   // ---- hook ----
   'tool.hook.BEFORE': '前置',
   'tool.hook.AFTER': '后置',

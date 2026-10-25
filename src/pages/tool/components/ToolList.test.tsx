@@ -19,7 +19,13 @@
 //   （jsdom 能用的只有本项目 emotion 自己注入的那几条，比如 padding —— 见
 //    CopilotDock/toolActivity.test.tsx；antd 的 CSS-in-JS 预设色不在此列。）
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import { App } from 'antd';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Capability, MCPProviderSummary, ToolSummary } from '../data';
@@ -74,6 +80,7 @@ const TOOLS: ToolSummary[] = [
     source_state: 'ACTIVE',
     description: '执行中向用户提问',
     classifications: [TREE[1]],
+    enabled: true,
   },
   {
     id: 't2',
@@ -83,6 +90,7 @@ const TOOLS: ToolSummary[] = [
     source_state: 'ACTIVE',
     description: '没挂分类的工具',
     classifications: [],
+    enabled: true,
   },
 ];
 
@@ -103,6 +111,7 @@ const PROVIDERS: MCPProviderSummary[] = [
 
 const renderList = (
   over: {
+    items?: ToolSummary[];
     selectedId?: string | null;
     filters?: Partial<ReturnType<typeof emptyFilters>>;
     providers?: MCPProviderSummary[];
@@ -111,7 +120,7 @@ const renderList = (
   render(
     <App>
       <ToolList
-        items={TOOLS}
+        items={over.items ?? TOOLS}
         loading={false}
         total={TOOLS.length}
         selectedId={over.selectedId ?? null}
@@ -256,5 +265,60 @@ describe('MCP provider 过滤', () => {
     renderList({ filters: { source_type: 'mcp' } });
 
     expect(screen.queryByText(/已同步 \d+（ACTIVE/)).toBeNull();
+  });
+});
+
+/**
+ * 运行时下线（tool.yaml 的 `enabled`）。
+ *
+ * 这一条最容易做错的地方是**把它和 source_state 混成一个维度**：
+ *   - source_state=MISSING：代码里已经找不到这个 tool（同步的结果）
+ *   - enabled=false：代码还在、ACTIVE，只是被人从运行时掐掉了
+ * 两者可以同时出现，所以断言要证明它们各自独立渲染。
+ *
+ * 文案断言不写中文原文：本文件 mock 掉了 useIntl（回落到契约原值），
+ * 这里能拿到的是 "false" 而不是「已下线」。按类名判色，和上面几条口径一致。
+ */
+describe('运行时下线标记', () => {
+  const offline = (): ToolSummary[] => [
+    { ...TOOLS[0], id: 't9', enabled: false },
+  ];
+
+  const itemOf = (toolKey: string) =>
+    screen.getByText(toolKey).closest('button') as HTMLElement;
+
+  it('⭐ enabled=false：「已下线」**顶掉**「生效中」，不是并排两个标签', () => {
+    renderList({ items: offline() });
+
+    const item = itemOf('agent.ask_user_question');
+    expect(item.getAttribute('data-tool-enabled')).toBe('false');
+
+    // 一个工具只该有一个状态 —— 下线了就不该再宣称"生效中"
+    // （2026-10-25 用户口径；这推翻了我最初"两个正交标签并存"的写法）
+    expect(within(item).queryByText('ACTIVE')).toBeNull();
+    // 下线用 warning 色（紫已被业务分类占用，绿/红被 source_state 占用）
+    expect(item.querySelector('.ant-tag-warning')).not.toBeNull();
+  });
+
+  it('MISSING 优先于下线：代码里都没了，下线标没有信息量', () => {
+    // 契约上两者可以同时成立（MISSING + enabled=false），此时该说的是"已缺失"
+    renderList({
+      items: [
+        { ...TOOLS[0], id: 't10', source_state: 'MISSING', enabled: false },
+      ],
+    });
+
+    const item = itemOf('agent.ask_user_question');
+    expect(within(item).getByText('MISSING')).toBeInTheDocument();
+    expect(item.querySelector('.ant-tag-error')).not.toBeNull();
+    expect(item.querySelector('.ant-tag-warning')).toBeNull();
+  });
+
+  it('enabled=true 是常态：显示「生效中」，不出现下线标记', () => {
+    renderList();
+
+    const item = itemOf('agent.ask_user_question');
+    expect(within(item).getByText('ACTIVE')).toBeInTheDocument();
+    expect(item.querySelector('.ant-tag-warning')).toBeNull();
   });
 });

@@ -48,6 +48,14 @@
 //
 //  8. GET /tools 的 classification_code 筛选是**精确匹配一个节点**，
 //     不含子分类 —— 想含子分类要前端自己展开 descendantsOf。
+//
+//  9. **`enabled` 是运行时开关，不是代码侧事实**（2026-10-25 新增）。
+//     它来自 `tool_definition_state`（有行 = 显式下线，无行 = 正常），
+//     所以契约把它放在 `manifest` **外面**，也**不参与** sync：
+//     改代码再同步不会冲掉人工设的开关，只有 PATCH /tools/{id}/enabled 能改。
+//     语义是「从下一轮工具解析起不再下发给 LLM」—— 这一轮正在跑的不管。
+//     注意它**不能**当成 source_state 用：MISSING 说的是代码里找不到，
+//     enabled=false 说的是代码里有、但被人在运行时掐掉了。
 
 export type ToolSourceState = 'ACTIVE' | 'MISSING';
 
@@ -134,15 +142,34 @@ export interface ToolSummary {
   name: string;
   source_type: string;
   source_state: ToolSourceState;
+  /**
+   * 运行时开关。`false` = 被 PATCH /enabled 显式下线，下一轮工具解析会跳过它。
+   *
+   * 契约里是 required，但**旧后端不返回这个字段** —— 取值一律走
+   * `isToolEnabled()`，它把 undefined 当"启用"，别直接 `if (tool.enabled)`。
+   */
+  enabled: boolean;
   /** 服务端算好的生效描述。列表页直接展示，不要再自己拼一遍。 */
   description?: string | null;
   classifications?: Capability[] | null;
 }
 
 export interface ToolDefinitionDetail {
+  /** 运行时开关。契约刻意放在 manifest 之外 —— manifest 是代码侧事实，这个是库里的行。 */
+  enabled: boolean;
   manifest: ToolManifest;
   documentation: ToolDocumentation;
   classifications: Capability[];
+}
+
+/**
+ * `enabled` 的**展示口径**：只有 `false` 才算下线。
+ *
+ * undefined / null 一律当启用 —— 旧后端没有这个字段，把它当"下线"会让
+ * 整页工具凭空变成不可用，比不显示严重得多。
+ */
+export function isToolEnabled(tool: { enabled?: boolean | null }): boolean {
+  return tool.enabled !== false;
 }
 
 export interface PagedToolSummaryResponse {
@@ -230,6 +257,28 @@ export interface ToolClassificationUpdate {
   classification_ids: string[];
 }
 
+// ============================================================
+// 运行时开关（PATCH /tools/{tool_id}/enabled）
+// ============================================================
+
+/**
+ * `PATCH /tools/{tool_id}/enabled` 的请求体。
+ *
+ * 语义是**幂等的状态设置**，不是"取反"：
+ *   enabled=false -> 写入（或刷新）一行禁用记录
+ *   enabled=true  -> 删掉那一行
+ * 所以重复点同一个方向不会翻来覆去，也不需要先读回当前值。
+ */
+export interface ToolEnabledUpdate {
+  enabled: boolean;
+}
+
+/** 响应只回 tool_key + 生效后的 enabled，不回完整详情。 */
+export interface ToolEnabledState {
+  tool_key: string;
+  enabled: boolean;
+}
+
 export interface ToolSyncRequest {
   source_types?: string[];
   source_refs?: string[];
@@ -291,7 +340,7 @@ export interface CapabilityReplace {
 export const SOURCE_TYPE_COLOR: Record<string, string> = {
   local_method: 'blue',
   mcp: 'purple',
-  openapi: 'cyan',
+  openapi: 'default',
 };
 
 /** 不在上表里的类型给个中性色空串 —— antd Tag 的 color='' 会渲染成默认灰。 */
@@ -300,9 +349,18 @@ export function sourceTypeColor(sourceType: string): string {
 }
 
 export const SOURCE_STATE_COLOR: Record<ToolSourceState, string> = {
-  ACTIVE: 'green',
-  MISSING: 'red',
+  ACTIVE: 'success',
+  MISSING: 'error',
 };
+
+/**
+ * 下线标只用一个颜色：warning。
+ *
+ * 语义色位在这页已经被占满了（见 ToolList 文件头）：success/error = source_state、
+ * purple = 业务分类、blue = 选中态与主色。**这一页里"要注意但没坏"的事情用 warning**，
+ * 而 enabled=false 恰好就是这个味道 —— 代码里还有这个工具，只是被人掐掉了。
+ */
+export const TOOL_DISABLED_COLOR = 'warning';
 
 // ============================================================
 // 纯函数：把结构抖动的 JSONB 收敛成稳定的形状

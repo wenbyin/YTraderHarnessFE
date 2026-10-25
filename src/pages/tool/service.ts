@@ -33,6 +33,8 @@ import type {
   ToolDefinitionDetail,
   ToolDocumentation,
   ToolDocumentationUpdate,
+  ToolEnabledState,
+  ToolEnabledUpdate,
   ToolSyncRequest,
   ToolSyncResult,
 } from './data';
@@ -80,6 +82,29 @@ export async function syncTools(body?: ToolSyncRequest) {
   return request<ToolSyncResult>(`${TOOLS}/discovery/sync`, {
     method: 'POST',
     data: body ?? {},
+  });
+}
+
+/**
+ * 运行时下线 / 恢复一个 Tool。PATCH /api/v1/tools/{tool_id}/enabled
+ *
+ * 这是这一页**唯一一个会改变 Agent 行为的写操作**：
+ *   enabled=false -> 从**下一轮**工具解析起不再下发给 LLM（主 agent / planner /
+ *                    skill 共用同一条解析路径）；正在跑的那一轮不受影响。
+ *   enabled=true  -> 恢复，下一轮又能看到它。
+ *
+ * 三个必须记住的点：
+ *   1. 它是**状态设置**（幂等），不是切换 —— 别写成 `!current`，并发点两次会打架。
+ *   2. 持久层是"有行 = 禁用"，键是稳定的 `tool_key`；sync（含 remove_missing）
+ *      **不会碰**这张表，所以代码改动冲不掉人工设的开关，重新发现后仍然禁用
+ *      （fail-closed）。只有这个接口能改回来。
+ *   3. 不加 skipErrorHandler：这是用户显式触发的动作，失败必须出声 ——
+ *      否则会出现"界面显示已下线、实际后端没变"的静默错位。
+ */
+export async function setToolEnabled(toolId: string, enabled: boolean) {
+  return request<ToolEnabledState>(`${TOOLS}/${toolId}/enabled`, {
+    method: 'PATCH',
+    data: { enabled } satisfies ToolEnabledUpdate,
   });
 }
 

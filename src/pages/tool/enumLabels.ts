@@ -26,6 +26,7 @@ import type {
 type Group =
   | 'source_type'
   | 'source_state'
+  | 'enabled'
   | 'hook'
   | 'execution_mode'
   | 'processor_type';
@@ -33,6 +34,11 @@ type Group =
 export interface EnumLabels {
   sourceType: (value: string) => string;
   sourceState: (value: string) => string;
+  /**
+   * 运行时开关。键是 `tool.enabled.true / false` —— 契约里它是布尔而不是枚举，
+   * 所以这里收 boolean，内部再转成 key 的最后一段。
+   */
+  enabled: (value: boolean) => string;
   hook: (value: ProcessorHook) => string;
   mode: (value: ExecutionMode) => string;
   processorType: (value: ProcessorType) => string;
@@ -56,6 +62,7 @@ export function useEnumLabels(): EnumLabels {
   return {
     sourceType: (v) => label('source_type', v),
     sourceState: (v) => label('source_state', v),
+    enabled: (v) => label('enabled', String(v)),
     hook: (v) => label('hook', v),
     mode: (v) => label('execution_mode', v),
     processorType: (v) => label('processor_type', v),

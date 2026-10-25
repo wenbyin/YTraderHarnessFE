@@ -10,6 +10,9 @@ export default {
   'tool.source_state.ACTIVE': 'Active',
   'tool.source_state.MISSING': 'Missing',
 
+  'tool.enabled.true': 'Online',
+  'tool.enabled.false': 'Offline',
+
   'tool.hook.BEFORE': 'Before',
   'tool.hook.AFTER': 'After',
   'tool.hook.AROUND': 'Around',
